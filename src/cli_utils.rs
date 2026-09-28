@@ -179,7 +179,16 @@ impl<W: Write> Printer<W> {
     where
         W: Write,
     {
-        self.print_language_name(language.inaccurate, name, None)?;
+        self.print_language_row(language, name, None)
+    }
+
+    fn print_language_row(
+        &mut self,
+        language: &Language,
+        name: &str,
+        prefix: Option<&str>,
+    ) -> io::Result<()> {
+        self.print_language_name(language.inaccurate, name, prefix)?;
         write!(self.writer, " ")?;
         writeln!(
             self.writer,
@@ -304,6 +313,10 @@ impl<W: Write> Printer<W> {
                     .collect::<Vec<_>>(),
             )?;
         }
+        self.print_language_subtotal(parent)
+    }
+
+    fn print_language_subtotal(&mut self, parent: &Language) -> io::Result<()> {
         let mut subtotal = tokei::Report::new("(Total)".into());
         let summary = parent.summarise();
         subtotal.stats.code += summary.code;
@@ -337,62 +350,75 @@ impl<W: Write> Printer<W> {
                     self.print_subrow()?;
                 }
 
-                self.print_language(language, name.name())?;
                 if has_children {
-                    self.print_language_total(language)?;
+                    self.print_language_with_children(language, name.name())?;
+                } else {
+                    self.print_language(language, name.name())?;
                 }
 
                 if self.list_files {
-                    self.print_subrow()?;
-                    let mut reports: Vec<&Report> = language.reports.iter().collect();
-                    if !is_sorted {
-                        reports.sort_by(|&a, &b| a.name.cmp(&b.name));
-                    }
-                    if compact {
-                        for &report in &reports {
-                            writeln!(self.writer, "{:1$}", report, self.path_length)?;
-                        }
-                    } else {
-                        let (a, b): (Vec<&Report>, Vec<&Report>) =
-                            reports.iter().partition(|&r| r.stats.blobs.is_empty());
-                        for reports in &[&a, &b] {
-                            let mut first = true;
-                            for report in reports.iter() {
-                                if report.stats.blobs.is_empty() {
-                                    writeln!(self.writer, "{:1$}", report, self.path_length)?;
-                                } else {
-                                    if first && a.is_empty() {
-                                        writeln!(self.writer, " {}", report.name.display())?;
-                                        first = false;
-                                    } else {
-                                        writeln!(
-                                            self.writer,
-                                            "-- {} {}",
-                                            report.name.display(),
-                                            "-".repeat(
-                                                self.columns
-                                                    - 4
-                                                    - report.name.display().to_string().len()
-                                            )
-                                        )?;
-                                    }
-                                    let mut new_report = (*report).clone();
-                                    new_report.name = name.to_string().into();
-                                    writeln!(
-                                        self.writer,
-                                        " |-{:1$}",
-                                        new_report,
-                                        self.path_length - 3
-                                    )?;
-                                    self.print_report_total(report, language.inaccurate)?;
-                                }
-                            }
-                        }
-                    }
+                    self.print_files(language, *name, compact, is_sorted)?;
                 }
             }
         }
 
+        Ok(())
+    }
+
+    fn print_language_with_children(&mut self, language: &Language, name: &str) -> io::Result<()> {
+        self.print_language(language, name)?;
+        if !language.children.is_empty() {
+            self.print_language_total(language)?;
+        }
+        Ok(())
+    }
+
+    fn print_files(
+        &mut self,
+        language: &Language,
+        name: LanguageType,
+        compact: bool,
+        is_sorted: bool,
+    ) -> io::Result<()> {
+        self.print_subrow()?;
+        let mut reports: Vec<&Report> = language.reports.iter().collect();
+        if !is_sorted {
+            reports.sort_by(|&a, &b| a.name.cmp(&b.name));
+        }
+        if compact {
+            for &report in &reports {
+                writeln!(self.writer, "{:1$}", report, self.path_length)?;
+            }
+        } else {
+            let (a, b): (Vec<&Report>, Vec<&Report>) =
+                reports.iter().partition(|&r| r.stats.blobs.is_empty());
+            for reports in &[&a, &b] {
+                let mut first = true;
+                for report in reports.iter() {
+                    if report.stats.blobs.is_empty() {
+                        writeln!(self.writer, "{:1$}", report, self.path_length)?;
+                    } else {
+                        if first && a.is_empty() {
+                            writeln!(self.writer, " {}", report.name.display())?;
+                            first = false;
+                        } else {
+                            writeln!(
+                                self.writer,
+                                "-- {} {}",
+                                report.name.display(),
+                                "-".repeat(
+                                    self.columns - 4 - report.name.display().to_string().len()
+                                )
+                            )?;
+                        }
+                        let mut new_report = (*report).clone();
+                        new_report.name = name.to_string().into();
+                        writeln!(self.writer, " |-{:1$}", new_report, self.path_length - 3)?;
+                        self.print_report_total(report, language.inaccurate)?;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
