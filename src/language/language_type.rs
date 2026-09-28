@@ -53,6 +53,12 @@ impl LanguageType {
 
         let mut stats = Report::new(path);
 
+        stats.is_test = self == Go
+            && stats
+                .name
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("_test.go"));
         stats += self.parse_from_slice(text, config);
 
         Ok(stats)
@@ -351,5 +357,31 @@ mod tests {
         assert_eq!(stats.blobs.len(), 1, "num embedded languages");
         let rust_stats = stats.blobs.get(&Rust).expect("should have a Rust entry");
         assert_stats(rust_stats, 2, 5, 1);
+    }
+    #[test]
+    fn detection_is_specific_to_go_test_filenames() {
+        let root = tempfile::TempDir::new().unwrap();
+        for (name, language, expected) in [
+            ("example_test.go", LanguageType::Go, true),
+            ("nested/example_test.go", LanguageType::Go, true),
+            ("tests/example.go", LanguageType::Go, false),
+            ("contest.go", LanguageType::Go, false),
+            ("example_test.GO", LanguageType::Go, false),
+            ("example_test.go", LanguageType::Rust, false),
+        ] {
+            let path = {
+                let path = root.path().join(name);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(
+                    &path,
+                    "package example\n\n// A comment\nfunc Example() {}\n",
+                )
+                .unwrap();
+                path
+            };
+            let report = language.parse(path, &Config::default()).unwrap();
+            assert_eq!(report.is_test, expected, "{name}, {language}");
+            assert_stats(&report.stats, 1, 2, 1);
+        }
     }
 }

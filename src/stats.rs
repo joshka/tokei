@@ -75,6 +75,13 @@ pub struct Report {
     pub stats: CodeStats,
     /// File name.
     pub name: PathBuf,
+    /// Whether this file is recognized as test-associated code.
+    ///
+    /// Applies to the entire file, including helpers, benchmarks, and examples.
+    /// False means not recognized, not necessarily production code. Older
+    /// serialized reports default to false.
+    #[serde(default)]
+    pub is_test: bool,
 }
 
 impl Report {
@@ -139,5 +146,29 @@ impl fmt::Display for Report {
             formatted.push_str(&name[from..]);
             display_stats!(f, self, formatted, max_len)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_round_trip_preserves_test_classification() {
+        let mut report = Report::new("main_test.go".into());
+        report.is_test = true;
+        report.stats.code = 3;
+        let json = serde_json::to_string(&report).unwrap();
+        let restored: Report = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, report);
+    }
+
+    #[test]
+    fn old_report_defaults_to_unclassified() {
+        let json =
+            r#"{"name":"main_test.go","stats":{"code":3,"comments":0,"blanks":0,"blobs":{}}}"#;
+        let report: Report = serde_json::from_str(json).unwrap();
+        assert!(!report.is_test);
+        assert_eq!(report.stats.code, 3);
     }
 }

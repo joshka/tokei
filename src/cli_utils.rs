@@ -119,6 +119,32 @@ impl NumberFormatStyle {
     }
 }
 
+#[derive(Clone, Copy)]
+enum LanguageDisplay {
+    Compact,
+    Plain,
+    Embedded,
+    Tests,
+}
+
+impl LanguageDisplay {
+    fn for_language(language: &Language, compact: bool) -> Self {
+        if compact {
+            Self::Compact
+        } else if language.reports.iter().any(|report| report.is_test) {
+            Self::Tests
+        } else if !language.children.is_empty() {
+            Self::Embedded
+        } else {
+            Self::Plain
+        }
+    }
+
+    fn has_breakdown(self) -> bool {
+        matches!(self, Self::Embedded | Self::Tests)
+    }
+}
+
 pub struct Printer<W> {
     writer: W,
     columns: usize,
@@ -336,33 +362,57 @@ impl<W: Write> Printer<W> {
     where
         I: Iterator<Item = (&'a LanguageType, &'a Language)>,
     {
-        let (a, b): (Vec<_>, Vec<_>) = languages
-            .filter(|(_, v)| !v.is_empty())
-            .partition(|(_, l)| compact || l.children.is_empty());
-        let mut first = true;
-
-        for languages in &[&a, &b] {
-            for &(name, language) in *languages {
-                let has_children = !(compact || language.children.is_empty());
-                if first {
-                    first = false;
-                } else if has_children || self.list_files {
-                    self.print_subrow()?;
-                }
-
-                if has_children {
-                    self.print_language_with_children(language, name.name())?;
-                } else {
-                    self.print_language(language, name.name())?;
-                }
-
-                if self.list_files {
-                    self.print_files(language, *name, compact, is_sorted)?;
-                }
+        let mut plain = Vec::new();
+        let mut expanded = Vec::new();
+        for (name, language) in languages {
+            if language.is_empty() {
+                continue;
+            }
+            let display = LanguageDisplay::for_language(language, compact);
+            let entry = (name, language, display);
+            if display.has_breakdown() {
+                expanded.push(entry);
+            } else {
+                plain.push(entry);
             }
         }
 
+        for (index, (name, language, display)) in plain.into_iter().chain(expanded).enumerate() {
+            if index > 0 && (display.has_breakdown() || self.list_files) {
+                self.print_subrow()?;
+            }
+            self.print_language_summary(language, name.name(), display)?;
+            if self.list_files {
+                self.print_files(language, *name, compact, is_sorted)?;
+            }
+        }
         Ok(())
+    }
+
+    fn print_language_summary(
+        &mut self,
+        language: &Language,
+        name: &str,
+        display: LanguageDisplay,
+    ) -> io::Result<()> {
+        match display {
+            LanguageDisplay::Compact => self.print_language(&language.summarise(), name),
+            LanguageDisplay::Plain => self.print_language(language, name),
+            LanguageDisplay::Embedded => self.print_language_with_children(language, name),
+            LanguageDisplay::Tests => self.print_test_breakdown(language, name),
+        }
+    }
+
+    fn print_test_breakdown(&mut self, language: &Language, name: &str) -> io::Result<()> {
+        self.print_language_name(language.inaccurate, name, None)?;
+        writeln!(self.writer)?;
+        let tests = language.test_statistics();
+        self.print_language_row(&tests.summarise(), "Tests", Some(" |-"))?;
+        let other = language.non_test_statistics();
+        if !other.reports.is_empty() {
+            self.print_language_row(&other.summarise(), "Other", Some(" |-"))?;
+        }
+        self.print_language_subtotal(language)
     }
 
     fn print_language_with_children(&mut self, language: &Language, name: &str) -> io::Result<()> {

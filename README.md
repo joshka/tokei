@@ -197,6 +197,25 @@ flag tokei can also output individual file statistics.
 $ tokei ./foo --files
 ```
 
+#### Test-file statistics
+
+Languages with recognized tests expand into `Tests` and `Other` rows, followed by `(Total)`.
+Each subrow shows its file, line, code, comment, and blank counts. `Other` means files not recognized
+as tests and is omitted when empty. Languages without recognized tests keep their usual layout.
+
+Use `--compact` for one inclusive row per language, hiding test and embedded-language breakdowns.
+The breakdown also works with `--files` and sorting. Overall totals include both subsets.
+
+Detection recognizes Go filenames ending in `_test.go`. All contents of those files,
+including helpers, benchmarks, and examples, contribute to the test counts. Other filenames and
+languages are not classified; this does not mean their contents are production code. Inline tests
+are not yet detected.
+
+JSON and streaming JSON reports include `is_test`. Library users can call
+`Language::test_statistics()` and `Language::non_test_statistics()` to obtain the subsets. Older
+saved reports without `is_test` remain readable and default to unclassified; loading them does not
+rerun detection.
+
 #### Outputting into different formats
 Tokei normally outputs into a nice human readable format designed for terminals.
 There is also using the `--output` option various other formats that are more
