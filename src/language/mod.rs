@@ -1,6 +1,7 @@
 mod embedding;
 pub mod language_type;
 pub mod languages;
+mod rust_tests;
 mod syntax;
 
 use std::{collections::BTreeMap, mem, ops::AddAssign};
@@ -58,7 +59,7 @@ impl Language {
         self.reports.push(report);
     }
 
-    /// Returns statistics for recognized test files, including their reports.
+    /// Returns statistics for recognized test code, including its file reports.
     ///
     /// These counts are a subset of the existing totals, not additional lines.
     /// Older saved reports without test classification are not reclassified when loaded.
@@ -79,12 +80,12 @@ impl Language {
         self.statistics_for_tests(true)
     }
 
-    /// Returns statistics for files not recognized as tests.
+    /// Returns statistics outside recognized test code.
     ///
-    /// Together with [`Language::test_statistics`], this partitions the file reports.
-    /// This is the complement of recognized tests, not a guarantee that these
-    /// files contain no tests. Embedded languages
-    /// retain their usual representation; use [`Language::summarise`] to include them.
+    /// Together with [`Language::test_statistics`], this partitions counted lines.
+    /// A file containing inline tests can appear in both subsets. Other lines
+    /// are not guaranteed to be production code. Embedded languages retain
+    /// their usual representation; use [`Language::summarise`] to include them.
     #[must_use]
     pub fn non_test_statistics(&self) -> Self {
         self.statistics_for_tests(false)
@@ -92,12 +93,22 @@ impl Language {
 
     fn statistics_for_tests(&self, is_test: bool) -> Self {
         let mut subset = Self::new();
-        for report in self
-            .reports
-            .iter()
-            .filter(|report| report.is_test == is_test)
-        {
-            subset.add_report(report.clone());
+        for report in &self.reports {
+            let stats = match (is_test, report.is_test, &report.test_stats) {
+                (true, true, _) | (false, false, None) => Some(report.stats.clone()),
+                (true, false, Some(tests)) => Some(tests.clone()),
+                (false, false, Some(tests)) => Some(report.stats.without(tests)),
+                _ => None,
+            };
+            if let Some(stats) = stats {
+                if stats.summarise().lines() > 0 {
+                    let mut part = report.clone();
+                    part.stats = stats;
+                    part.is_test = is_test;
+                    part.test_stats = None;
+                    subset.add_report(part);
+                }
+            }
         }
         subset.total();
         subset.inaccurate = self.inaccurate;

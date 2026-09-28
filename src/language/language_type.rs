@@ -53,12 +53,19 @@ impl LanguageType {
 
         let mut stats = Report::new(path);
 
-        stats.is_test = self == Go
-            && stats
+        if self == Go {
+            stats.is_test = stats
                 .name
                 .file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.ends_with("_test.go"));
+        }
+        if self == Rust {
+            stats.is_test = super::rust_tests::is_cargo_test_file(&stats.name);
+            if !stats.is_test {
+                stats.test_stats = super::rust_tests::statistics(&text, config);
+            }
+        }
         stats += self.parse_from_slice(text, config);
 
         Ok(stats)

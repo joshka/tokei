@@ -131,7 +131,11 @@ impl LanguageDisplay {
     fn for_language(language: &Language, compact: bool) -> Self {
         if compact {
             Self::Compact
-        } else if language.reports.iter().any(|report| report.is_test) {
+        } else if language
+            .reports
+            .iter()
+            .any(|report| report.is_test || report.test_stats.is_some())
+        {
             Self::Tests
         } else if !language.children.is_empty() {
             Self::Embedded
@@ -404,15 +408,16 @@ impl<W: Write> Printer<W> {
     }
 
     fn print_test_breakdown(&mut self, language: &Language, name: &str) -> io::Result<()> {
-        self.print_language_name(language.inaccurate, name, None)?;
-        writeln!(self.writer)?;
-        let tests = language.test_statistics();
-        self.print_language_row(&tests.summarise(), "Tests", Some(" |-"))?;
         let other = language.non_test_statistics();
         if !other.reports.is_empty() {
-            self.print_language_row(&other.summarise(), "Other", Some(" |-"))?;
+            self.print_language(&other, name)?;
+        } else {
+            self.print_language_name(language.inaccurate, name, None)?;
+            writeln!(self.writer)?;
         }
-        self.print_language_subtotal(language)
+        let tests = language.test_statistics();
+        self.print_language_row(&tests, "Tests", Some(" |-"))?;
+        self.print_language_total(language)
     }
 
     fn print_language_with_children(&mut self, language: &Language, name: &str) -> io::Result<()> {

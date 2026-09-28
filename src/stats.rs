@@ -31,6 +31,23 @@ impl CodeStats {
         self.blanks + self.code + self.comments
     }
 
+    /// Returns the counts outside an included subset of this file.
+    #[must_use]
+    pub(crate) fn without(&self, subset: &Self) -> Self {
+        let mut other = Self::new();
+        other.blanks = self.blanks - subset.blanks;
+        other.code = self.code - subset.code;
+        other.comments = self.comments - subset.comments;
+        for (language, stats) in &self.blobs {
+            if let Some(part) = subset.blobs.get(language) {
+                other.blobs.insert(*language, stats.without(part));
+            } else {
+                other.blobs.insert(*language, stats.clone());
+            }
+        }
+        other
+    }
+
     /// Creates a new `CodeStats` from an existing one with all of the child
     /// blobs merged.
     #[must_use]
@@ -82,6 +99,12 @@ pub struct Report {
     /// serialized reports default to false.
     #[serde(default)]
     pub is_test: bool,
+    /// Statistics for test code within a file that also contains other code.
+    ///
+    /// This is a subset of `stats`. When absent, `is_test` classifies the
+    /// entire file. Older serialized reports default to no inline test data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_stats: Option<CodeStats>,
 }
 
 impl Report {
