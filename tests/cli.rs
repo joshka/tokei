@@ -16,7 +16,21 @@ fn project() -> TempDir {
 }
 
 fn run(root: &Path, args: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_tokei"))
+    // Cargo applies the target runner to this test, but not to its subprocesses.
+    let runner_key = format!(
+        "CARGO_TARGET_{}_RUNNER",
+        env!("TOKEI_TEST_TARGET").replace('-', "_").to_uppercase()
+    );
+    let runner = std::env::var(&runner_key).unwrap_or_default();
+    let mut runner = runner.split_whitespace();
+    let mut command = if let Some(program) = runner.next() {
+        let mut command = Command::new(program);
+        command.args(runner).arg(env!("CARGO_BIN_EXE_tokei"));
+        command
+    } else {
+        Command::new(env!("CARGO_BIN_EXE_tokei"))
+    };
+    let output = command
         .current_dir(root)
         .env("NO_COLOR", "1")
         .args(args)
